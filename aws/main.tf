@@ -2,16 +2,12 @@ provider "aws" {
   region = var.region
 }
 
-resource "random_id" "project_name" {
-  byte_length = 4
-}
-
 # Local for tag to attach to all items
 locals {
   tags = merge(
     var.tags,
     {
-      "ProjectName" = random_id.project_name.hex
+      "ProjectName" = var.project_name
     },
   )
 }
@@ -22,7 +18,7 @@ data "aws_availability_zones" "available" {
 
 module "bastion_vpc" {
   source = "terraform-aws-modules/vpc/aws"
-  name   = "${random_id.project_name.hex}-bastion"
+  name   = "${var.project_name}-bastion"
 
   cidr = "10.1.0.0/16"
 
@@ -43,7 +39,7 @@ module "bastion_vpc" {
   tags = local.tags
 
   vpc_tags = {
-    Name = "${random_id.project_name.hex}-vpc"
+    Name = "${var.project_name}-vpc"
   }
 }
 
@@ -76,7 +72,7 @@ resource "aws_instance" "bastion" {
 
 module "vpc" {
   source = "terraform-aws-modules/vpc/aws"
-  name   = "${random_id.project_name.hex}-vpc"
+  name   = "${var.project_name}-vpc"
 
   cidr = "10.0.0.0/16"
 
@@ -97,7 +93,7 @@ module "vpc" {
   tags = local.tags
 
   vpc_tags = {
-    Name = "${random_id.project_name.hex}-vpc"
+    Name = "${var.project_name}-vpc"
   }
 }
 
@@ -163,7 +159,7 @@ resource "aws_route" "bastion_vpc" {
 
 # AWS S3 Bucket for Certificates, Private Keys, Encryption Key, and License
 resource "aws_kms_key" "bucketkms" {
-  description             = "${random_id.project_name.hex}-key"
+  description             = "${var.project_name}-key"
   deletion_window_in_days = 7
   # Add deny all policy to kms key to ensure accessing secrets
   # is a break-glass proceedure
@@ -175,7 +171,7 @@ resource "aws_kms_key" "bucketkms" {
 }
 
 resource "aws_s3_bucket" "consul_setup" {
-  bucket        = "${random_id.project_name.hex}-consul-setup"
+  bucket        = "${var.project_name}-consul-setup"
   acl           = "private"
   force_destroy = var.force_bucket_destroy
   lifecycle {
@@ -187,7 +183,7 @@ resource "aws_s3_bucket" "consul_setup" {
 # AWS S3 Bucket for Consul Backups
 resource "aws_s3_bucket" "consul_backups" {
   count         = var.consul_ent_license != "" ? 1 : 0
-  bucket        = "${random_id.project_name.hex}-consul-backups"
+  bucket        = "${var.project_name}-consul-backups"
   force_destroy = var.force_bucket_destroy
   lifecycle {
     create_before_destroy = true
@@ -220,7 +216,7 @@ data "aws_iam_policy_document" "consul_bucket" {
 }
 
 resource "aws_iam_role_policy" "consul_bucket" {
-  name   = "${random_id.project_name.id}-consul-bucket"
+  name   = "${var.project_name}-consul-bucket"
   role   = aws_iam_role.instance_role.id
   policy = data.aws_iam_policy_document.consul_bucket.json
 }
@@ -240,7 +236,7 @@ data "aws_iam_policy_document" "bucketkms" {
 }
 
 resource "aws_iam_role_policy" "bucketkms" {
-  name   = "${random_id.project_name.id}-bucketkms"
+  name   = "${var.project_name}-bucketkms"
   role   = aws_iam_role.instance_role.id
   policy = data.aws_iam_policy_document.bucketkms.json
 }
@@ -266,7 +262,7 @@ data "aws_iam_policy_document" "consul_backups" {
 }
 
 resource "aws_iam_role_policy" "consul_backups" {
-  name   = "${random_id.project_name.id}-consul-backups"
+  name   = "${var.project_name}-consul-backups"
   role   = aws_iam_role.instance_role.id
   policy = data.aws_iam_policy_document.consul_backups.json
 }
@@ -289,7 +285,7 @@ data "aws_ami" "latest-image" {
 
 module "lambda" {
   source                = "github.com/chrismatteson/terraform-lambda"
-  function_name         = "${random_id.project_name.hex}-consul-license"
+  function_name         = "${var.project_name}-consul-license"
   source_files          = [{ content = "install_license.py", filename = "aws/install_license.py" }]
   environment_variables = { "LICENSE" = var.consul_ent_license }
   handler               = "install_license.lambda_handler"
@@ -298,7 +294,7 @@ module "lambda" {
 }
 
 resource "aws_iam_instance_profile" "instance_profile" {
-  name_prefix = "${random_id.project_name.id}-instance_profile"
+  name_prefix = "${var.project_name}-instance_profile"
   role        = aws_iam_role.instance_role.name
 
   # aws_launch_configuration.launch_configuration in this module sets create_before_destroy to true, which means
@@ -310,7 +306,7 @@ resource "aws_iam_instance_profile" "instance_profile" {
 }
 
 resource "aws_iam_role" "instance_role" {
-  name_prefix        = "${random_id.project_name.id}-instance-role"
+  name_prefix        = "${var.project_name}-instance-role"
   assume_role_policy = data.aws_iam_policy_document.instance_role.json
 
   # aws_iam_instance_profile.instance_profile in this module sets create_before_destroy to true, which means
@@ -374,7 +370,7 @@ module "compress_consul" {
       systemd_stderr                      = var.systemd_stderr,
       bin_dir                             = var.bin_dir,
       cluster_tag_key                     = var.cluster_tag_key,
-      cluster_tag_value                   = "${random_id.project_name.hex}-${var.cluster_tag_value}",
+      cluster_tag_value                   = "${var.project_name}-${var.cluster_tag_value}",
       datacenter                          = var.datacenter,
       autopilot_cleanup_dead_servers      = var.autopilot_cleanup_dead_servers,
       autopilot_last_contact_threshold    = var.autopilot_last_contact_threshold,
@@ -401,7 +397,7 @@ module "consul" {
   source            = "terraform-aws-modules/autoscaling/aws"
   version           = "3.4.0"
   image_id          = var.ami_id != "" ? var.ami_id : data.aws_ami.latest-image.id
-  name              = "${random_id.project_name.hex}-consul"
+  name              = "${var.project_name}-consul"
   health_check_type = "EC2"
   max_size          = var.consul_cluster_size
   min_size          = var.consul_cluster_size
@@ -426,7 +422,7 @@ module "consul" {
     [
       {
         key                 = var.cluster_tag_key
-        value               = "${random_id.project_name.hex}-${var.cluster_tag_value}"
+        value               = "${var.project_name}-${var.cluster_tag_value}"
         propagate_at_launch = true
       }
     ]
@@ -448,7 +444,7 @@ data "aws_iam_policy_document" "invoke_lambda" {
 }
 
 resource "aws_iam_role_policy" "InvokeLambda" {
-  name   = "${random_id.project_name.id}-invoke-lambda"
+  name   = "${var.project_name}-invoke-lambda"
   role   = aws_iam_role.instance_role.id
   policy = data.aws_iam_policy_document.invoke_lambda.json
 }
@@ -479,7 +475,7 @@ module "compress_vault" {
       systemd_stderr                = var.systemd_stderr,
       bin_dir                       = var.bin_dir,
       cluster_tag_key               = var.cluster_tag_key,
-      cluster_tag_value             = "${random_id.project_name.hex}-${var.cluster_tag_value}",
+      cluster_tag_value             = "${var.project_name}-${var.cluster_tag_value}",
       datacenter                    = var.datacenter,
       enable_gossip_encryption      = var.enable_gossip_encryption,
       enable_rpc_encryption         = var.enable_rpc_encryption,
@@ -501,7 +497,7 @@ resource "aws_kms_key" "vault" {
   deletion_window_in_days = 10
 
   tags = {
-    Name = "vault-kms-unseal-${random_id.project_name.hex}"
+    Name = "vault-kms-unseal-${var.project_name}"
   }
 }
 
@@ -520,7 +516,7 @@ data "aws_iam_policy_document" "vault-kms-unseal" {
 }
 
 resource "aws_iam_role_policy" "kms_key" {
-  name   = "${random_id.project_name.id}-kms-key"
+  name   = "${var.project_name}-kms-key"
   role   = aws_iam_role.instance_role.id
   policy = data.aws_iam_policy_document.vault-kms-unseal.json
 }
@@ -529,7 +525,7 @@ module "vault" {
   source            = "terraform-aws-modules/autoscaling/aws"
   version           = "3.4.0"
   image_id          = var.ami_id != "" ? var.ami_id : data.aws_ami.latest-image.id
-  name              = "${random_id.project_name.hex}-vault"
+  name              = "${var.project_name}-vault"
   health_check_type = "EC2"
   max_size          = var.vault_cluster_size
   min_size          = var.vault_cluster_size
@@ -555,7 +551,7 @@ module "vault" {
 }
 
 resource "aws_lb" "vault" {
-  name               = "${random_id.project_name.hex}-vault-lb"
+  name               = "${var.project_name}-vault-lb"
   internal           = true
   load_balancer_type = "application"
   subnets            = module.vpc.public_subnets
@@ -568,7 +564,7 @@ resource "aws_lb" "vault" {
 }
 
 resource "aws_lb_target_group" "vault" {
-  name     = "${random_id.project_name.hex}-vault-lb"
+  name     = "${var.project_name}-vault-lb"
   port     = 8200
   protocol = "HTTP"
   vpc_id   = module.vpc.vpc_id

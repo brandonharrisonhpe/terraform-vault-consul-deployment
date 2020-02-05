@@ -1,5 +1,5 @@
 output "Project_Name" {
-  value = random_id.project_name.hex
+  value = var.project_name
 }
 
 output "Connect_to_Bastion" {
