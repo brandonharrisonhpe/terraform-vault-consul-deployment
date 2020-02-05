@@ -19,11 +19,11 @@ variable "subnet_ids" { default = "" }
 variable "consul_ent_license" { default = "" }
 variable "vault_ent_license" { default = "" }
 variable "consul_version" {
-  default = "1.6.3"
+  default = "1.6.3+ent"
 }
 variable "consul_download_url" { default = "" }
 variable "vault_version" {
-  default = "1.3.2"
+  default = "1.3.2+ent"
 }
 variable "vault_download_url" { default = "" }
 variable "cluster_tag_key" { default = "consul-servers" }
